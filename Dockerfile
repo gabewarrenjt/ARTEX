@@ -186,6 +186,11 @@ RUN npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" "@playwright/cli@
     && playwright-cli --help \
     && playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
+# Expose the globally-installed node modules (playwright, etc.) to the agents'
+# ad-hoc `node -e`/require() probe scripts. Without this a worker's own browser
+# script hits "Cannot find module 'playwright'" and stops to ask the operator,
+# even though Chromium and Playwright are installed in the image above.
+ENV NODE_PATH=/usr/local/lib/node_modules
 WORKDIR /app
 # Binary compiled from source in the build stage above.
 COPY --from=build /out/artex /app/artex
