@@ -91,6 +91,10 @@ type Config struct {
 	// LLM request built from this config. Empty = don't set it, leaving the Go/Norma
 	// default UA untouched (the historical behavior). Validated by ValidateUserAgent.
 	UserAgent string
+	// Extras adds fixed HTTP headers and top-level JSON body fields to every LLM
+	// request built from this config. Zero value = send requests unchanged. Only set
+	// from the environment, for the OpenAI formats (see RequestExtrasFromEnv).
+	Extras RequestExtras
 	// Retry holds the retry parameters resolved for this config (profile override →
 	// global policy → built-in default, resolved server-side). See RetryConfig for
 	// the per-layer semantics; zero values = fully inherit the built-in defaults.
@@ -283,6 +287,17 @@ func FromEnv() (Config, bool) {
 	if c.APIKey == "" && c.NeedsAPIKey() {
 		return Config{}, false
 	}
+	// Request extras (org/project headers, extra body fields) only go to the
+	// OpenAI formats: they are OpenAI-specific and another endpoint may reject them.
+	if c.Format == llm.FormatOpenAI || c.Format == llm.FormatOpenAIResponses {
+		extras, err := RequestExtrasFromEnv()
+		if err != nil {
+			// Fail loudly rather than run without fields the operator asked for.
+			log.Printf("[llm] invalid request extras in the environment, LLM not configured: %v", err)
+			return Config{}, false
+		}
+		c.Extras = extras
+	}
 	return c, true
 }
 
@@ -362,7 +377,7 @@ func (c Config) Provider() string {
 // limiter lives on the single provider instance — so planner + all workers +
 // main agent (which share this provider) are bounded by one shared rate limit.
 func (c Config) NewProvider() (llm.Provider, error) {
-	client, err := quotaAwareHTTPClient(c.Proxy, c.SessionHeaderKey, c.UserAgent)
+	client, err := llmHTTPClient(c.Proxy, c.SessionHeaderKey, c.UserAgent, c.Extras)
 	if err != nil {
 		return nil, err
 	}
@@ -464,9 +479,18 @@ type quotaAwareTransport struct {
 	// userAgent, when non-empty, is set as the User-Agent header on every request.
 	// Empty leaves the default UA untouched. See Config.UserAgent.
 	userAgent string
+	// extras, when non-empty, adds fixed headers and merges top-level fields into
+	// JSON request bodies. See Config.Extras.
+	extras compiledExtras
 }
 
 func (t quotaAwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Extra body fields first: the capture snapshot below must record the body that
+	// is actually sent.
+	req = t.extras.applyBody(req)
+	for k, v := range t.extras.headers {
+		req.Header.Set(k, v)
+	}
 	// Custom session-id header: name is user-configured, value is THIS run's
 	// session id (norma stashes it on the context via transcript.WithSessionID).
 	// Stable across a session's turns and distinct across sessions — exactly what
@@ -534,6 +558,12 @@ func requestBodySnapshot(req *http.Request) string {
 }
 
 func quotaAwareHTTPClient(proxy, sessionHeaderKey, userAgent string) (*http.Client, error) {
+	return llmHTTPClient(proxy, sessionHeaderKey, userAgent, RequestExtras{})
+}
+
+// llmHTTPClient is quotaAwareHTTPClient plus fixed request extras (headers and
+// JSON body fields added to every request).
+func llmHTTPClient(proxy, sessionHeaderKey, userAgent string, extras RequestExtras) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	proxy = strings.TrimSpace(proxy)
 	if proxy == "" {
@@ -552,7 +582,7 @@ func quotaAwareHTTPClient(proxy, sessionHeaderKey, userAgent string) (*http.Clie
 		}
 		transport.Proxy = http.ProxyURL(proxyURL)
 	}
-	return &http.Client{Transport: quotaAwareTransport{base: transport, sessionHeaderKey: strings.TrimSpace(sessionHeaderKey), userAgent: strings.TrimSpace(userAgent)}}, nil
+	return &http.Client{Transport: quotaAwareTransport{base: transport, sessionHeaderKey: strings.TrimSpace(sessionHeaderKey), userAgent: strings.TrimSpace(userAgent), extras: extras.compile()}}, nil
 }
 
 // MaxUserAgentLen bounds a custom User-Agent value. Generous for real UA strings
