@@ -34,6 +34,11 @@ services:
       ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-}
       ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-}
       ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
+      # OpenAI formats only: org/project headers and a JSON object merged into every
+      # request body (e.g. an access program). See README "Configuration".
+      ARTEX_LLM_OPENAI_ORG: ${ARTEX_LLM_OPENAI_ORG:-}
+      ARTEX_LLM_OPENAI_PROJECT: ${ARTEX_LLM_OPENAI_PROJECT:-}
+      ARTEX_LLM_EXTRA_BODY: ${ARTEX_LLM_EXTRA_BODY:-}
       ARTEX_JWT_KEY_DIR: /app/keys
       # Optional: key for secrets at rest; empty = keys/secret.key (generated at first start).
       ARTEX_SECRET_KEY: ${ARTEX_SECRET_KEY:-}

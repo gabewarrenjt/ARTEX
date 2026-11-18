@@ -423,6 +423,15 @@ runtime supports it.
 `ARTEX_LLM_PROVIDER` (`anthropic | openai | openai-responses | ollama`), `ARTEX_LLM_MODEL`,
 `ARTEX_LLM_BASE_URL`, `ARTEX_LLM_PROXY`.
 
+**OpenAI request extras (env only)**: for the `openai` and `openai-responses` formats,
+`ARTEX_LLM_OPENAI_ORG` / `ARTEX_LLM_OPENAI_PROJECT` set the `OpenAI-Organization` /
+`OpenAI-Project` headers, and `ARTEX_LLM_EXTRA_BODY` is a JSON object merged into the top level
+of every request body, like the SDKs' `extra_body` (for example
+`{"access_programs":{"cyber":"daybreak_blue"}}`). Fields ARTEX sets itself (`model`, `input`,
+`messages`, `stream`, `tools`) cannot be overridden. They apply to the environment provider only,
+not to profiles saved in the UI. An invalid value leaves the environment provider unconfigured
+and logs why.
+
 **Base URL gotcha**: for the Anthropic format, enter the host **without** `/v1` (for example
 `https://api.anthropic.com`); ARTEX appends `/v1/messages`. OpenAI-format providers append
 `/chat/completions` (or `/responses` for `openai-responses`), so their base **does** end in `/v1`

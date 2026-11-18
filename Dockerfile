@@ -110,6 +110,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates ripgrep curl wget vim git jq unzip xz-utils \
       dnsutils iputils-ping netcat-openbsd inetutils-telnet whois nmap \
     && rm -rf /var/lib/apt/lists/*
+# Common libraries for the agents' ad-hoc Python probes: HTTP clients (requests,
+# httpx), HTML/XML parsing (beautifulsoup4, lxml), JWT and crypto (PyJWT,
+# pycryptodome), and websockets. Without these a worker stops mid-run to ask the
+# operator to pip-install them, pausing the intent.
+RUN pip install --no-cache-dir "requests==2.32.3" "beautifulsoup4==4.12.3" "lxml==5.3.0" \
+    "httpx==0.27.2" "PyJWT==2.9.0" "pycryptodome==3.21.0" "websocket-client==1.8.0"
 # Node 22 from the official nodejs.org tarball, verified against its SHASUMS256.txt:
 # bookworm's apt nodejs is 18, Playwright requires >=20, and 20 is end-of-life.
 # 22 matches the CI and release workflows.
