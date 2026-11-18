@@ -117,25 +117,23 @@ func (e RequestExtras) compile() compiledExtras {
 	return c
 }
 
-// applyBody returns req with the extra body fields merged into its JSON body. A
-// request without extras, without a body, or whose body is not a JSON object is
-// returned unchanged (a non-JSON body is restored byte for byte). The original
-// request is never modified: a merged body goes on a clone.
-func (c compiledExtras) applyBody(req *http.Request) *http.Request {
+// applyBody merges extra fields into the request copy owned by the transport.
+// A body that is not a JSON object is restored byte for byte.
+func (c compiledExtras) applyBody(req *http.Request) {
 	if len(c.body) == 0 || req.Method != http.MethodPost || req.Body == nil || req.Body == http.NoBody {
-		return req
+		return
 	}
 	orig, err := io.ReadAll(req.Body)
 	_ = req.Body.Close()
 	if err != nil {
 		// The body is consumed and unreadable; let the send fail on what remains.
 		setBody(req, orig)
-		return req
+		return
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(orig, &fields) != nil || fields == nil {
 		setBody(req, orig) // not a JSON object: send it exactly as it was
-		return req
+		return
 	}
 	for k, v := range c.body {
 		fields[k] = v
@@ -143,11 +141,9 @@ func (c compiledExtras) applyBody(req *http.Request) *http.Request {
 	merged, err := json.Marshal(fields)
 	if err != nil {
 		setBody(req, orig)
-		return req
+		return
 	}
-	out := req.Clone(req.Context())
-	setBody(out, merged)
-	return out
+	setBody(req, merged)
 }
 
 func setBody(req *http.Request, b []byte) {

@@ -485,9 +485,11 @@ type quotaAwareTransport struct {
 }
 
 func (t quotaAwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Header and body changes belong to the outgoing copy of the request.
+	req = req.Clone(req.Context())
 	// Extra body fields first: the capture snapshot below must record the body that
 	// is actually sent.
-	req = t.extras.applyBody(req)
+	t.extras.applyBody(req)
 	for k, v := range t.extras.headers {
 		req.Header.Set(k, v)
 	}

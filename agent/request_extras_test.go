@@ -106,6 +106,49 @@ func TestRequestExtrasLeaveNonJSONBodyAlone(t *testing.T) {
 	}
 }
 
+func TestRequestExtrasPreserveCallerRequest(t *testing.T) {
+	const body = "a=1&b=2"
+	const header = "OpenAI-Organization"
+	for name, extraBody := range map[string]string{
+		"headers only":  "",
+		"non-JSON body": `{"store":true}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			originalBody := io.NopCloser(strings.NewReader(body))
+			req, err := http.NewRequest(http.MethodPost, "http://example.test", originalBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(header, "org-original")
+			transport := quotaAwareTransport{
+				extras: mustExtras(t, "org-configured", "", extraBody).compile(),
+				base: roundTripperFunc(func(out *http.Request) (*http.Response, error) {
+					if got := out.Header.Get(header); got != "org-configured" {
+						t.Errorf("outgoing header = %q, want org-configured", got)
+					}
+					got, err := io.ReadAll(out.Body)
+					out.Body.Close()
+					if err != nil || string(got) != body {
+						t.Errorf("outgoing body = %q, err = %v, want %q", got, err, body)
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}),
+			}
+			resp, err := transport.RoundTrip(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if got := req.Header.Get(header); got != "org-original" {
+				t.Errorf("caller header changed to %q", got)
+			}
+			if req.Body != originalBody || req.ContentLength != 0 || req.GetBody != nil {
+				t.Error("caller body fields changed")
+			}
+		})
+	}
+}
+
 func TestRequestExtrasZeroChangesNothing(t *testing.T) {
 	const body = `{"model":"m","stream":true}`
 	got := sendThrough(t, RequestExtras{}, http.MethodPost, "application/json", body)
