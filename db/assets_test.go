@@ -14,7 +14,7 @@ func testSetup(t *testing.T) (*DB, *AssetStore, *CompanyStore) {
 	t.Helper()
 	d, err := Open(testDSN(t))
 	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
+		SkipPGUnavailable(t, err)
 	}
 	return d, d.Assets(), d.Companies()
 }
@@ -878,6 +878,17 @@ func TestMarshalStringArray(t *testing.T) {
 	got2 := marshalStringArray(nil)
 	if got2 != "{}" {
 		t.Errorf("empty: %q", got2)
+	}
+
+	quoted := marshalStringArray([]string{`say "hi"`, `a\b`})
+	if quoted != `{"say \"hi\"","a\\b"}` {
+		t.Errorf("escape: %q", quoted)
+	}
+
+	// A backslash before a quote must not close the element and inject another.
+	injected := marshalStringArray([]string{`x\",evil,\"y`})
+	if strings.Contains(injected, `","evil`) {
+		t.Errorf("backslash-quote split the array: %q", injected)
 	}
 }
 

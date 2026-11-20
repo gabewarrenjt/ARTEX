@@ -173,19 +173,32 @@ RUN set -eux; \
     ! grep -qE "Installing|ERRR|CRITICAL" /tmp/bbot-dry.log || { cat /tmp/bbot-dry.log; exit 1; }
 
 
-# Preinstall Playwright MCP and CLI (globally) so no npx network download is needed at runtime.
-# @playwright/mcp: browser MCP runs directly via `npx @playwright/mcp` (installed globally, no -y/@latest needed).
+# Preinstall Playwright MCP and CLI (globally) so no network download is needed at runtime.
+# @playwright/mcp: the seeded browser MCP runs the playwright-mcp binary directly.
+# `npx @playwright/mcp` is not used: it queries the npm registry on every start even
+# with the package installed globally.
 # @playwright/cli: provides playwright-cli, verified with --help right after install.
 # Then install playwright (browser management) and preinstall chromium plus its system
-# dependencies via --with-deps, so MCP/CLI work on first start inside the container
-# without downloading browsers over the network. All three are pinned; upgrade deliberately.
+# dependencies via --with-deps. @playwright/mcp and @playwright/cli bundle their own
+# playwright-core, which expects a different Chromium build than
+# playwright@PLAYWRIGHT_VERSION installs, so that build is installed as well (second
+# install line); without it neither can launch a browser. All three packages are
+# pinned; upgrade deliberately.
 ARG PLAYWRIGHT_MCP_VERSION=0.0.83
 ARG PLAYWRIGHT_CLI_VERSION=0.1.22
 ARG PLAYWRIGHT_VERSION=1.64.1
+# playwright-core's exports map hides cli.js from require.resolve, so run the
+# binary npm links for @playwright/mcp instead: it is the copy MCP actually
+# loads, and it installs the Chromium revision that copy expects.
 RUN npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" "@playwright/cli@${PLAYWRIGHT_CLI_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" \
     && playwright-cli --help \
     && playwright install --with-deps chromium \
+    && "$(npm root -g)/@playwright/mcp/node_modules/.bin/playwright-core" install chromium \
     && rm -rf /var/lib/apt/lists/*
+# Agent processes run as the executor with HOME and XDG_CACHE_HOME in the data
+# directory (server/execpriv_unix.go); the browsers installed above stay in root's
+# cache, which /root's 0711 lets the executor reach.
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 WORKDIR /app
 # Binary compiled from source in the build stage above.
 COPY --from=build /out/artex /app/artex
@@ -193,7 +206,12 @@ COPY --from=build /out/artex /app/artex
 # to artex — docker stop only signals PID 1; without forwarding, artex never receives it,
 # cannot shut down gracefully, and is hard-killed by SIGKILL after 10 seconds.
 COPY start.sh /app/start.sh
-RUN chmod +x /app/artex /app/start.sh && mkdir -p /app/keys
+RUN chmod +x /app/artex /app/start.sh && mkdir -p -m 0700 /app/keys \
+    && chmod 0711 /root
+# No setuid or setgid programs (su, passwd, mount, bbot's chrome_sandbox, ...): an
+# agent process runs as the executor and must not regain root through one, even
+# when the container runs without docker-compose.yml's no-new-privileges.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 COPY skills/ /app/skills/
 # persistence points: data/ (traffic index, task files, transcripts) and keys/ (jwt.key, secret.key, via ARTEX_JWT_KEY_DIR)
 VOLUME ["/app/data", "/app/keys"]
